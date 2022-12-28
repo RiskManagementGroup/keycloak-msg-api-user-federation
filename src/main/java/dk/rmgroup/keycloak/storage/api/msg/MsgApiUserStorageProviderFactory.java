@@ -6,6 +6,7 @@ import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConst
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_ALLOW_UPDATE_UPN_DOMAINS;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_AUTHORITY;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_CLIENT_ID;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUP_MAP;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_MSG_BASE_URL;
@@ -126,6 +127,13 @@ public class MsgApiUserStorageProviderFactory
         .helpText(
             "Turn this ON if you would like to also import users that are not members of any of the mapped groups.")
         .add()
+        .property()
+        .name(CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS)
+        .label("Groups for users not in mapped groups")
+        .type(ProviderConfigProperty.STRING_TYPE)
+        .helpText(
+            "Comma separated list of Keycloak groups to be assigned to users who are not members of any of the mapped groups.")
+        .add()
         .build();
   }
 
@@ -187,6 +195,12 @@ public class MsgApiUserStorageProviderFactory
           "You must turn ON \"Import users not in mapped groups\", when Group map is not specified!");
     }
 
+    if (config.contains(CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS)
+        && !config.get(CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS, false)) {
+      throw new ComponentValidationException(
+          "\"Groups for users not in mapped groups\" is not applicable, when \"Import users not in mapped groups\" is turned OFF!");
+    }
+
     UserStorageProviderFactory.super.validateConfiguration(session, realm, config);
   }
 
@@ -194,7 +208,7 @@ public class MsgApiUserStorageProviderFactory
       UserStorageProviderModel model) {
     String token;
     try {
-      token = getToken(model.get(CONFIG_KEY_AUTHORITY), model.get(CONFIG_KEY_CLIENT_ID), model.get(CONFIG_KEY_SECRET),
+      token = getMsgApiToken(model.get(CONFIG_KEY_AUTHORITY), model.get(CONFIG_KEY_CLIENT_ID), model.get(CONFIG_KEY_SECRET),
           model.get(CONFIG_KEY_SCOPE));
     } catch (Exception e) {
       throw new RuntimeException(String.format(
@@ -204,7 +218,7 @@ public class MsgApiUserStorageProviderFactory
     GroupMapConfig groupMapConfig = GetGroupMapConfig(sessionFactory, realmId, model);
     List<MsgApiUser> apiUsers;
     try {
-      apiUsers = getUsers(model.get(CONFIG_KEY_MSG_BASE_URL), token, groupMapConfig.groupMap,
+      apiUsers = getMsgApiUsers(model.get(CONFIG_KEY_MSG_BASE_URL), token, groupMapConfig,
           model.get(CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS, false));
     } catch (Exception e) {
       throw new RuntimeException(
@@ -220,16 +234,22 @@ public class MsgApiUserStorageProviderFactory
           .collect(Collectors.toList());
     }
 
-    return importApiUsers(sessionFactory, realmId, model, apiUsers, allowUpdateUpnDomains, groupMapConfig.groupMap);
+    return importApiUsers(sessionFactory, realmId, model, apiUsers, allowUpdateUpnDomains, groupMapConfig);
   }
 
   class GroupMapConfig {
     private Map<String, GroupModel> groupMap = new HashMap<String, GroupModel>();
 
+    private List<GroupModel> groupsForUsersNotInMappedGroups = new ArrayList<GroupModel>();
+
     private List<String> errors = new ArrayList<String>();
 
     public Map<String, GroupModel> getGroupMap() {
       return groupMap;
+    }
+
+    public List<GroupModel> GetGroupsForUsersNotInMappedGroups() {
+      return groupsForUsersNotInMappedGroups;
     }
 
     public List<String> getErrors() {
@@ -238,6 +258,7 @@ public class MsgApiUserStorageProviderFactory
 
     public void setProperties(GroupMapConfig groupMapConfig) {
       groupMap = groupMapConfig.groupMap;
+      groupsForUsersNotInMappedGroups = groupMapConfig.groupsForUsersNotInMappedGroups;
       errors = groupMapConfig.errors;
     }
   }
@@ -255,6 +276,7 @@ public class MsgApiUserStorageProviderFactory
   private GroupMapConfig GetGroupMapConfig(RealmModel realm, ComponentModel config) {
     GroupMapConfig groupMapConfig = new GroupMapConfig();
     Map<String, GroupModel> groupMap = groupMapConfig.groupMap;
+    List<GroupModel> groupsForUsersNotInMappedGroups = groupMapConfig.groupsForUsersNotInMappedGroups;
     List<String> errors = groupMapConfig.errors;
 
     if (config.contains(CONFIG_KEY_GROUP_MAP)) {
@@ -285,17 +307,42 @@ public class MsgApiUserStorageProviderFactory
       }
     }
 
+    if (config.contains(CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS)
+        && config.contains(CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS)) {
+      Arrays.stream(config.get(CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS).split(",")).map(g -> g.trim())
+          .forEach(g -> {
+            try {
+              GroupModel kcGroup = KeycloakModelUtils.findGroupByPath(realm, g);
+              if (kcGroup != null) {
+                groupsForUsersNotInMappedGroups.add(kcGroup);
+              } else {
+                String errorMessage = String.format("Keycloak group '%s' not found.", g);
+                logger.error(errorMessage);
+                errors.add(errorMessage);
+              }
+            } catch (Exception e) {
+              String errorMessage = String.format("Error getting Keycloak group '%s'. '%s'", g, e.getMessage());
+              logger.error(errorMessage, e);
+              errors.add(errorMessage);
+            }
+          });
+    }
+
     return groupMapConfig;
   }
 
   private SynchronizationResult importApiUsers(KeycloakSessionFactory sessionFactory, final String realmId,
       final ComponentModel fedModel, List<MsgApiUser> apiUsers, List<String> allowUpdateUpnDomains,
-      Map<String, GroupModel> groupMap) {
+      GroupMapConfig groupMapConfig) {
+    final Map<String, GroupModel> groupMap = groupMapConfig.groupMap;
+    final List<GroupModel> groupsForUsersNotInMappedGroups = groupMapConfig.groupsForUsersNotInMappedGroups;
+
     final SynchronizationResult syncResult = new SynchronizationResult();
 
     final String fedId = fedModel.getId();
 
-    final Set<String> apiUsersUpnSet = apiUsers.stream().map(u -> u.getUserPrincipalName().toLowerCase()).distinct().collect(Collectors.toSet());
+    final Set<String> apiUsersUpnSet = apiUsers.stream().map(u -> u.getUserPrincipalName().toLowerCase()).distinct()
+        .collect(Collectors.toSet());
 
     KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
 
@@ -384,9 +431,23 @@ public class MsgApiUserStorageProviderFactory
                 importedUser.leaveGroup(g);
               });
             } else {
-              importedUser.getGroupsStream().forEach(g -> {
-                importedUser.leaveGroup(g);
-              });
+              if (apiUserGroups.size() == 0 && groupsForUsersNotInMappedGroups.size() > 0) {
+                groupsForUsersNotInMappedGroups.forEach(g -> {
+                  groupIds.add(g.getId());
+                  if (!importedUser.isMemberOf(g)) {
+                    importedUser.joinGroup(g);
+                  }
+                });
+                importedUser.getGroupsStream().filter(g -> {
+                  return !groupIds.contains(g.getId());
+                }).forEach(g -> {
+                  importedUser.leaveGroup(g);
+                });
+              } else {
+                importedUser.getGroupsStream().forEach(g -> {
+                  importedUser.leaveGroup(g);
+                });
+              }
             }
 
             if (existingLocalUser == null) {
@@ -405,7 +466,7 @@ public class MsgApiUserStorageProviderFactory
     return syncResult;
   }
 
-  private static String getToken(String authority, String clientId, String secret, String scope) throws Exception {
+  private static String getMsgApiToken(String authority, String clientId, String secret, String scope) throws Exception {
     ConfidentialClientApplication app = ConfidentialClientApplication.builder(clientId,
         ClientCredentialFactory.createFromSecret(secret)).authority(authority).build();
 
@@ -436,10 +497,11 @@ public class MsgApiUserStorageProviderFactory
     }
   }
 
-  private static List<MsgApiUser> getUsers(String msgBaseUrl, String token, Map<String, GroupModel> groupMap,
+  private static List<MsgApiUser> getMsgApiUsers(String msgBaseUrl, String token, GroupMapConfig groupMapConfig,
       boolean importUsersNotInMappedGroups)
       throws Exception {
-    Map<String, MsgApiUser> usersMap = new HashMap<>();
+    final Map<String, GroupModel> groupMap = groupMapConfig.groupMap;
+    final Map<String, MsgApiUser> usersMap = new HashMap<>();
 
     URI baseUri = new URI(msgBaseUrl);
 
