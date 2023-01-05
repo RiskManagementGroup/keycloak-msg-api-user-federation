@@ -23,6 +23,7 @@ import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -32,6 +33,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -208,7 +210,8 @@ public class MsgApiUserStorageProviderFactory
       UserStorageProviderModel model) {
     String token;
     try {
-      token = getMsgApiToken(model.get(CONFIG_KEY_AUTHORITY), model.get(CONFIG_KEY_CLIENT_ID), model.get(CONFIG_KEY_SECRET),
+      token = getMsgApiToken(model.get(CONFIG_KEY_AUTHORITY), model.get(CONFIG_KEY_CLIENT_ID),
+          model.get(CONFIG_KEY_SECRET),
           model.get(CONFIG_KEY_SCOPE));
     } catch (Exception e) {
       throw new RuntimeException(String.format(
@@ -466,7 +469,8 @@ public class MsgApiUserStorageProviderFactory
     return syncResult;
   }
 
-  private static String getMsgApiToken(String authority, String clientId, String secret, String scope) throws Exception {
+  private static String getMsgApiToken(String authority, String clientId, String secret, String scope)
+      throws Exception {
     ConfidentialClientApplication app = ConfidentialClientApplication.builder(clientId,
         ClientCredentialFactory.createFromSecret(secret)).authority(authority).build();
 
@@ -497,6 +501,48 @@ public class MsgApiUserStorageProviderFactory
     }
   }
 
+  private static Map<String, String> getMsgApiGroupIdsAndMapKeys(String msgBaseUrl, String token,
+      Map<String, GroupModel> groupMap) throws Exception {
+    URI baseUri = new URI(msgBaseUrl);
+
+    Set<String> groupMapKeySet = groupMap.keySet();
+
+    Set<String> groupMapUUIDSet = groupMapKeySet.stream().filter(k -> {
+      try {
+        UUID.fromString(k);
+        return true;
+      } catch (Exception e) {
+        return false;
+      }
+    }).collect(Collectors.toSet());
+
+    if (groupMapKeySet.size() == groupMapUUIDSet.size()) {
+      // No need to fetch groups if all map keys are group UUIDs
+      return groupMapKeySet.stream().collect(Collectors.toMap(k -> k, k -> k));
+    } else {
+      URL groupsUrl = baseUri.resolve("./groups").toURL();
+
+      JSONObject groupsJsonObject = callMsgGetEndpoint(groupsUrl, token);
+      JSONArray groupsJsonArray = groupsJsonObject.getJSONArray("value");
+
+      return IntStream.range(0, groupsJsonArray.length()).mapToObj(i -> {
+        return groupsJsonArray.getJSONObject(i);
+      }).map(o -> {
+        String id = o.getString("id");
+        String displayName = o.getString("displayName");
+        return new AbstractMap.SimpleEntry<String, String>(id, displayName);
+      }).filter(o -> {
+        return groupMapKeySet.contains(o.getKey()) || groupMapKeySet.contains(o.getValue());
+      }).collect(Collectors.toMap(kvp -> kvp.getKey(), kvp -> {
+        if (groupMapUUIDSet.contains(kvp.getKey())) {
+          return kvp.getKey();
+        } else {
+          return kvp.getValue();
+        }
+      }));
+    }
+  }
+
   private static List<MsgApiUser> getMsgApiUsers(String msgBaseUrl, String token, GroupMapConfig groupMapConfig,
       boolean importUsersNotInMappedGroups)
       throws Exception {
@@ -506,35 +552,22 @@ public class MsgApiUserStorageProviderFactory
     URI baseUri = new URI(msgBaseUrl);
 
     if (groupMap != null && groupMap.size() > 0) {
-      Set<String> groupMapKeySet = groupMap.keySet();
-      URL groupsUrl = baseUri.resolve("./groups").toURL();
+      Map<String, String> groupIdsAndMapKeys = getMsgApiGroupIdsAndMapKeys(msgBaseUrl, token, groupMap);
 
-      JSONObject groupsJsonObject = callMsgGetEndpoint(groupsUrl, token);
-      JSONArray groupsJsonArray = groupsJsonObject.getJSONArray("value");
-
-      List<JSONObject> groups = IntStream.range(0, groupsJsonArray.length()).mapToObj(i -> {
-        return groupsJsonArray.getJSONObject(i);
-      }).filter(o -> {
-        String displayName = o.getString("displayName");
-        return groupMapKeySet.contains(displayName);
-      }).collect(Collectors.toList());
-
-      groups.forEach(g -> {
-        String groupId = g.getString("id");
-        String groupDisplayName = g.getString("displayName");
+      groupIdsAndMapKeys.forEach((groupId, groupMapKey) -> {
         URL transitiveMembersUrl = null;
         try {
           transitiveMembersUrl = baseUri.resolve(String.format(
               "./groups/%s/transitiveMembers?$select=userPrincipalName,mail,givenName,surname,mobilePhone,accountEnabled",
               groupId)).toURL();
         } catch (MalformedURLException e) {
-          logger.errorf(e, "Unable to resolve transitive members url for group '%s'", groupDisplayName);
+          logger.errorf(e, "Unable to resolve transitive members url for group '%s'", groupMapKey);
         }
         JSONObject transitiveMembersJsonObject = null;
         try {
           transitiveMembersJsonObject = callMsgGetEndpoint(transitiveMembersUrl, token);
         } catch (IOException e) {
-          logger.errorf(e, "Unable to get transitive members for group '%s'", groupDisplayName);
+          logger.errorf(e, "Unable to get transitive members for group '%s'", groupMapKey);
         }
         JSONArray transitiveMembersJsonArray = transitiveMembersJsonObject.getJSONArray("value");
         List<JSONObject> users = IntStream.range(0, transitiveMembersJsonArray.length()).mapToObj(i -> {
@@ -553,8 +586,8 @@ public class MsgApiUserStorageProviderFactory
                 u.optString("surname"), u.optString("mobilePhone"), u.optBoolean("accountEnabled", false));
             usersMap.put(userPrincipalName, user);
           }
-          if (!user.getGroups().contains(groupDisplayName)) {
-            user.addGroup(groupDisplayName);
+          if (!user.getGroups().contains(groupMapKey)) {
+            user.addGroup(groupMapKey);
           }
         });
       });
