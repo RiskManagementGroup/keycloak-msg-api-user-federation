@@ -18,12 +18,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -501,6 +500,32 @@ public class MsgApiUserStorageProviderFactory
     }
   }
 
+  private static List<JSONObject> fetchAllEntitiesFromMsgGetEndpoint(URL endpointUrl, String token)
+      throws Exception {
+    List<JSONObject> odataObjects = new ArrayList<JSONObject>();
+    URL odataNextLink = endpointUrl;
+
+    do {
+      JSONObject odataJsonObject = callMsgGetEndpoint(odataNextLink, token);
+      JSONArray odataJsonArray = odataJsonObject.getJSONArray("value");
+      odataObjects.addAll(IntStream.range(0, odataJsonArray.length()).mapToObj(i -> {
+        return odataJsonArray.getJSONObject(i);
+      }).collect(Collectors.toList()));
+      if (odataJsonObject.has("@odata.nextLink")) {
+        try {
+          odataNextLink = new URL(odataJsonObject.getString("@odata.nextLink"));
+        } catch (Exception e) {
+          odataNextLink = null;
+          logger.error("Unable to get @odata.nextLink", e);
+        }
+      } else {
+        odataNextLink = null;
+      }
+    } while (odataNextLink != null);
+
+    return odataObjects;
+  }
+
   private static Map<String, String> getMsgApiGroupIdsAndMapKeys(String msgBaseUrl, String token,
       Map<String, GroupModel> groupMap) throws Exception {
     URI baseUri = new URI(msgBaseUrl);
@@ -516,31 +541,34 @@ public class MsgApiUserStorageProviderFactory
       }
     }).collect(Collectors.toSet());
 
-    if (groupMapKeySet.size() == groupMapUUIDSet.size()) {
-      // No need to fetch groups if all map keys are group UUIDs
-      return groupMapKeySet.stream().collect(Collectors.toMap(k -> k, k -> k));
-    } else {
-      URL groupsUrl = baseUri.resolve("./groups").toURL();
+    Set<String> groupMapDisplayNameSet = new HashSet<String>(groupMapKeySet);
+    groupMapDisplayNameSet.removeAll(groupMapUUIDSet);
 
-      JSONObject groupsJsonObject = callMsgGetEndpoint(groupsUrl, token);
-      JSONArray groupsJsonArray = groupsJsonObject.getJSONArray("value");
+    Map<String, String> groupIdsAndMapKeys = new HashMap<String, String>();
 
-      return IntStream.range(0, groupsJsonArray.length()).mapToObj(i -> {
-        return groupsJsonArray.getJSONObject(i);
-      }).map(o -> {
-        String id = o.getString("id");
-        String displayName = o.getString("displayName");
-        return new AbstractMap.SimpleEntry<String, String>(id, displayName);
-      }).filter(o -> {
-        return groupMapKeySet.contains(o.getKey()) || groupMapKeySet.contains(o.getValue());
-      }).collect(Collectors.toMap(kvp -> kvp.getKey(), kvp -> {
-        if (groupMapUUIDSet.contains(kvp.getKey())) {
-          return kvp.getKey();
-        } else {
-          return kvp.getValue();
-        }
-      }));
+    if (groupMapUUIDSet.size() > 0) {
+      groupIdsAndMapKeys.putAll(groupMapKeySet.stream().collect(Collectors.toMap(k -> k, k -> k)));
     }
+
+    if (groupMapDisplayNameSet.size() > 0) {
+      String displayNameFilter = URLEncoder
+          .encode(
+              String.format("displayName in (%s)",
+                  String.join(",",
+                      groupMapDisplayNameSet.stream().map(k -> String.format("'%s'", k)).collect(Collectors.toList()))),
+              StandardCharsets.UTF_8.name());
+
+      URL groupsUrl = baseUri
+          .resolve(String.format("./groups?$top=999&$select=id,displayName&$filter=%s", displayNameFilter))
+          .toURL();
+
+      List<JSONObject> groups = fetchAllEntitiesFromMsgGetEndpoint(groupsUrl, token);
+
+      groupIdsAndMapKeys
+          .putAll(groups.stream().collect(Collectors.toMap(o -> o.getString("id"), o -> o.getString("displayName"))));
+    }
+
+    return groupIdsAndMapKeys;
   }
 
   private static List<MsgApiUser> getMsgApiUsers(String msgBaseUrl, String token, GroupMapConfig groupMapConfig,
@@ -555,54 +583,44 @@ public class MsgApiUserStorageProviderFactory
       Map<String, String> groupIdsAndMapKeys = getMsgApiGroupIdsAndMapKeys(msgBaseUrl, token, groupMap);
 
       groupIdsAndMapKeys.forEach((groupId, groupMapKey) -> {
-        URL transitiveMembersUrl = null;
         try {
-          transitiveMembersUrl = baseUri.resolve(String.format(
-              "./groups/%s/transitiveMembers?$select=userPrincipalName,mail,givenName,surname,mobilePhone,accountEnabled",
+          URL transitiveMembersUrl = baseUri.resolve(String.format(
+              "./groups/%s/transitiveMembers?$top=999&$select=userPrincipalName,mail,givenName,surname,mobilePhone,accountEnabled",
               groupId)).toURL();
-        } catch (MalformedURLException e) {
-          logger.errorf(e, "Unable to resolve transitive members url for group '%s'", groupMapKey);
+
+          List<JSONObject> users = fetchAllEntitiesFromMsgGetEndpoint(transitiveMembersUrl, token)
+              .stream()
+              .filter(o -> {
+                String odataType = o.getString("@odata.type");
+                return odataType.equals("#microsoft.graph.user") && !o.optString("mail").isEmpty();
+              }).collect(Collectors.toList());
+
+          users.forEach(u -> {
+            String userPrincipalName = u.getString("userPrincipalName");
+            MsgApiUser user;
+            if (usersMap.containsKey(userPrincipalName)) {
+              user = usersMap.get(userPrincipalName);
+            } else {
+              user = new MsgApiUser(userPrincipalName, u.getString("mail"), u.optString("givenName"),
+                  u.optString("surname"), u.optString("mobilePhone"), u.optBoolean("accountEnabled", false));
+              usersMap.put(userPrincipalName, user);
+            }
+            if (!user.getGroups().contains(groupMapKey)) {
+              user.addGroup(groupMapKey);
+            }
+          });
+        } catch (Exception e) {
+          throw new RuntimeException(e);
         }
-        JSONObject transitiveMembersJsonObject = null;
-        try {
-          transitiveMembersJsonObject = callMsgGetEndpoint(transitiveMembersUrl, token);
-        } catch (IOException e) {
-          logger.errorf(e, "Unable to get transitive members for group '%s'", groupMapKey);
-        }
-        JSONArray transitiveMembersJsonArray = transitiveMembersJsonObject.getJSONArray("value");
-        List<JSONObject> users = IntStream.range(0, transitiveMembersJsonArray.length()).mapToObj(i -> {
-          return transitiveMembersJsonArray.getJSONObject(i);
-        }).filter(o -> {
-          String odataType = o.getString("@odata.type");
-          return odataType.equals("#microsoft.graph.user") && !o.optString("mail").isEmpty();
-        }).collect(Collectors.toList());
-        users.forEach(u -> {
-          String userPrincipalName = u.getString("userPrincipalName");
-          MsgApiUser user;
-          if (usersMap.containsKey(userPrincipalName)) {
-            user = usersMap.get(userPrincipalName);
-          } else {
-            user = new MsgApiUser(userPrincipalName, u.getString("mail"), u.optString("givenName"),
-                u.optString("surname"), u.optString("mobilePhone"), u.optBoolean("accountEnabled", false));
-            usersMap.put(userPrincipalName, user);
-          }
-          if (!user.getGroups().contains(groupMapKey)) {
-            user.addGroup(groupMapKey);
-          }
-        });
       });
     }
 
     if (importUsersNotInMappedGroups) {
       URL usersUrl = baseUri
-          .resolve("./users?$select=userPrincipalName,mail,givenName,surname,mobilePhone,accountEnabled").toURL();
+          .resolve("./users?$top=999&$select=userPrincipalName,mail,givenName,surname,mobilePhone,accountEnabled")
+          .toURL();
 
-      JSONObject usersJsonObject = callMsgGetEndpoint(usersUrl, token);
-      JSONArray usersJsonArray = usersJsonObject.getJSONArray("value");
-
-      List<JSONObject> users = IntStream.range(0, usersJsonArray.length()).mapToObj(i -> {
-        return usersJsonArray.getJSONObject(i);
-      }).filter(u -> {
+      List<JSONObject> users = fetchAllEntitiesFromMsgGetEndpoint(usersUrl, token).stream().filter(u -> {
         String userPrincipalName = u.getString("userPrincipalName");
         return !usersMap.containsKey(userPrincipalName) && !u.optString("mail").isEmpty();
       }).collect(Collectors.toList());
