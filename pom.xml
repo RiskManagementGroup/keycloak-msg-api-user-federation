@@ -7,7 +7,7 @@
 
   <groupId>dk.rmgroup.keycloak</groupId>
   <artifactId>msg-api-user-federation</artifactId>
-  <version>20.0.5</version>
+  <version>20.0.5.1</version>
 
   <name>msg-api-user-federation</name>
   <url>hhttps://github.com/RiskManagementGroup/keycloak-msg-api-user-federation</url>
@@ -132,7 +132,7 @@
                   <include>com.microsoft.azure:msal4j</include>
                   <include>net.minidev:json-smart</include>
                   <include>net.minidev:asm</include>
-                  <include>com.nimbusds:nimbus-jose-jwt</include>
+                  <include>com.nimbusds:*</include>
                 </includes>
               </artifactSet>
             </configuration>
