@@ -1,6 +1,7 @@
 package dk.rmgroup.keycloak.storage.api.msg;
 
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 public class MsgApiUser {
@@ -13,7 +14,7 @@ public class MsgApiUser {
   private final Set<String> groups;
 
   public MsgApiUser(String userPrincipalName, String mail, String givenName, String surname, String mobilePhone, boolean accountEnabled) {
-    this.userPrincipalName = userPrincipalName;
+    this.userPrincipalName = Optional.ofNullable(userPrincipalName).map(String::toLowerCase).orElse(userPrincipalName);
     this.mail = mail;
     this.givenName = givenName;
     this.surname = surname;

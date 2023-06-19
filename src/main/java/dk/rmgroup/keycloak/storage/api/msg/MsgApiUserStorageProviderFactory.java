@@ -413,7 +413,7 @@ public class MsgApiUserStorageProviderFactory
 
     final String fedId = fedModel.getId();
 
-    final Set<String> apiUsersUpnSet = apiUsers.stream().map(u -> u.getUserPrincipalName().toLowerCase()).distinct()
+    final Set<String> apiUsersUpnSet = apiUsers.stream().map(u -> u.getUserPrincipalName()).distinct()
         .collect(Collectors.toSet());
 
     final AtomicInteger removedCount = new AtomicInteger(0);
