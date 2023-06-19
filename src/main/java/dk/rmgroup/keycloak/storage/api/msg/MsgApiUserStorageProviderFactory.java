@@ -35,6 +35,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -73,9 +74,9 @@ public class MsgApiUserStorageProviderFactory
 
   private static final Logger logger = Logger.getLogger(MsgApiUserStorageProviderFactory.class);
 
-  private static final int USER_SEARCH_PAGE_SIZE = 100;
+  private static final int USER_REMOVE_PAGE_SIZE = 100;
 
-  private static final int USER_API_PAGE_SIZE = 100;
+  private static final int USER_IMPORT_PAGE_SIZE = 100;
 
   public MsgApiUserStorageProviderFactory() {
     configMetadata = ProviderConfigurationBuilder.create()
@@ -440,25 +441,53 @@ public class MsgApiUserStorageProviderFactory
         });
 
     if (totalExistingUsers > 0) {
-      int totalPages = (int) Math.ceil((double) totalExistingUsers / USER_SEARCH_PAGE_SIZE);
+      int totalPagesExistingUsers = (int) Math.ceil((double) totalExistingUsers / USER_REMOVE_PAGE_SIZE);
 
-      IntStream.range(0, totalPages).parallel().forEach(page -> {
+      CopyOnWriteArrayList<UserModel> usersToRemove = new CopyOnWriteArrayList<UserModel>();
+
+      IntStream.range(0, totalPagesExistingUsers).parallel().forEach(page -> {
         KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
 
           @Override
           public void run(KeycloakSession session) {
+            RealmModel realm = session.realms().getRealm(realmId);
+            UserProvider userProvider = session.users();
+            int firstResult = page * USER_REMOVE_PAGE_SIZE;
+            int maxResults = USER_REMOVE_PAGE_SIZE;
+
             try {
+              usersToRemove.addAll(userProvider
+                .searchForUserStream(realm, new HashMap<String, String>(), firstResult, maxResults)
+                .filter(u -> fedId.equals(u.getFederationLink()) && !apiUsersUpnSet.contains(u.getUsername()))
+                .collect(Collectors.toList()));
+            } catch (Exception e) {
+              logger.errorf(e,
+                  "Error getting users to remove in federation provider '%s'. Might not be able to remove all non existing users!",
+                  fedModel.getName());
+            }
+          }
+        });
+      });
+
+      int totalUsersToRemove = usersToRemove.size();
+
+      if (totalUsersToRemove > 0) {
+        int totalPagesUsersToRemove = (int) Math.ceil((double) totalUsersToRemove / USER_REMOVE_PAGE_SIZE);
+        IntStream.range(0, totalPagesUsersToRemove).parallel().forEach(page -> {
+
+          KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
+
+            @Override
+            public void run(KeycloakSession session) {
               RealmModel realm = session.realms().getRealm(realmId);
               UserProvider userProvider = session.users();
-              int firstResult = page * USER_SEARCH_PAGE_SIZE;
-              int maxResults = USER_SEARCH_PAGE_SIZE;
 
-              List<UserModel> usersToRemove = userProvider
-                  .searchForUserStream(realm, new HashMap<String, String>(), firstResult, maxResults)
-                  .filter(u -> fedId.equals(u.getFederationLink()) && !apiUsersUpnSet.contains(u.getUsername()))
-                  .collect(Collectors.toList());
+              int startIndex = page * USER_REMOVE_PAGE_SIZE;
+              int endIndex = Math.min(startIndex + USER_REMOVE_PAGE_SIZE, totalUsersToRemove);
 
-              for (final UserModel user : usersToRemove) {
+              List<UserModel> usersToRemovePage = usersToRemove.subList(startIndex, endIndex);
+
+              for (final UserModel user : usersToRemovePage) {
                 try {
                   userProvider.removeUser(realm, user);
                   removedCount.incrementAndGet();
@@ -469,19 +498,16 @@ public class MsgApiUserStorageProviderFactory
                   failedCount.incrementAndGet();
                 }
               }
-            } catch (Exception e) {
-              logger.errorf(e, "Error removing non existing users in federation provider '%s'", fedModel.getName());
-              failedCount.incrementAndGet();
             }
-          }
+          });
         });
-      });
+      }
     }
 
     int totalApiUsers = apiUsers.size();
 
     if (totalApiUsers > 0) {
-      int totalPages = (int) Math.ceil((double) totalApiUsers / USER_API_PAGE_SIZE);
+      int totalPages = (int) Math.ceil((double) totalApiUsers / USER_IMPORT_PAGE_SIZE);
       IntStream.range(0, totalPages).parallel().forEach(page -> {
         KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
 
@@ -490,8 +516,8 @@ public class MsgApiUserStorageProviderFactory
             RealmModel realm = session.realms().getRealm(realmId);
             UserProvider userProvider = session.users();
 
-            int startIndex = page * USER_API_PAGE_SIZE;
-            int endIndex = Math.min(startIndex + USER_API_PAGE_SIZE, totalApiUsers);
+            int startIndex = page * USER_IMPORT_PAGE_SIZE;
+            int endIndex = Math.min(startIndex + USER_IMPORT_PAGE_SIZE, totalApiUsers);
 
             List<MsgApiUser> apiUsersPage = apiUsers.subList(startIndex, endIndex);
 
@@ -563,7 +589,7 @@ public class MsgApiUserStorageProviderFactory
                     });
                   }
                 } else {
-                  if (apiUserGroups.size() == 0 && groupsForUsersNotInMappedGroups.size() > 0) {
+                  if ((apiUserGroups == null || apiUserGroups.size() == 0) && groupsForUsersNotInMappedGroups.size() > 0) {
                     for (GroupModel g : groupsForUsersNotInMappedGroups) {
                       groupIds.add(g.getId());
                       if (!importedUser.isMemberOf(g)) {
