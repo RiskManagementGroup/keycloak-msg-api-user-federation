@@ -652,7 +652,8 @@ public class MsgApiUserStorageProviderFactory
         Objects.equals(apiUser.getMail(), existingLocalUser.getEmail()) &&
         Objects.equals(apiUser.getGivenName(), existingLocalUser.getFirstName()) &&
         Objects.equals(apiUser.getSurname(), existingLocalUser.getLastName()) &&
-        Objects.equals(apiUser.getMobilePhone(), existingLocalUser.getFirstAttribute("mobile"));
+        Objects.equals(apiUser.getMobilePhone(), existingLocalUser.getFirstAttribute("mobile")) &&
+        apiUser.getAccountEnabled() == existingLocalUser.isEnabled();
   }
 
   private static String getMsgApiToken(String authority, String clientId, String secret, String scope)
