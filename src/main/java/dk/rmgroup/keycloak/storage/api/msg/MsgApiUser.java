@@ -15,7 +15,7 @@ public class MsgApiUser {
 
   public MsgApiUser(String userPrincipalName, String mail, String givenName, String surname, String mobilePhone, boolean accountEnabled) {
     this.userPrincipalName = Optional.ofNullable(userPrincipalName).map(String::toLowerCase).orElse(userPrincipalName);
-    this.mail = mail;
+    this.mail = Optional.ofNullable(mail).map(String::toLowerCase).orElse(mail);
     this.givenName = givenName;
     this.surname = surname;
     this.mobilePhone = mobilePhone;
