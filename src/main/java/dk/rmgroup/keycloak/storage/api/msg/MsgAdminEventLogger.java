@@ -355,21 +355,6 @@ public class MsgAdminEventLogger {
       }
 
       @Override
-      public Stream<String> getDefaultRolesStream() {
-        throw new UnsupportedOperationException("Unimplemented method 'getDefaultRolesStream'");
-      }
-
-      @Override
-      public void addDefaultRole(String name) {
-        throw new UnsupportedOperationException("Unimplemented method 'addDefaultRole'");
-      }
-
-      @Override
-      public void removeDefaultRoles(String... defaultRoles) {
-        throw new UnsupportedOperationException("Unimplemented method 'removeDefaultRoles'");
-      }
-
-      @Override
       public void updateClient() {
         throw new UnsupportedOperationException("Unimplemented method 'updateClient'");
       }
