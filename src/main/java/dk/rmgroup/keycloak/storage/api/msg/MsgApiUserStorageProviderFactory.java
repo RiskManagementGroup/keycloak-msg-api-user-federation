@@ -739,21 +739,37 @@ public class MsgApiUserStorageProviderFactory
     }
 
     if (groupMapDisplayNameSet.size() > 0) {
-      String displayNameFilter = URLEncoder
-          .encode(
-              String.format("displayName in (%s)",
-                  String.join(",",
-                      groupMapDisplayNameSet.stream().map(k -> String.format("'%s'", k)).collect(Collectors.toList()))),
-              StandardCharsets.UTF_8.name());
+      // We split the groupMapDisplayNameSet into chunks of 15 groups to avoid hitting the max filters of 15 for the $filter query in the Microsoft Graph API
+      // See: https://learn.microsoft.com/en-us/graph/filter-query-parameter?tabs=http#operators-and-functions-supported-in-filter-expressions
+      int chunkSize = 15;
+      int arraySize = (int) Math.ceil(groupMapDisplayNameSet.size() / (double) chunkSize);
+      List<Set<String>> groupMapDisplayNameChunks = new ArrayList<>(arraySize);
+      String[] groupMapDisplayNameArray = groupMapDisplayNameSet.toArray(new String[0]);
 
-      URL groupsUrl = baseUri
-          .resolve(String.format("./groups?$top=999&$select=id,displayName&$filter=%s", displayNameFilter))
-          .toURL();
+      for (int i = 0; i < groupMapDisplayNameArray.length; i += chunkSize) {
+        String[] groupArray = Arrays.copyOfRange(groupMapDisplayNameArray, i,
+            Math.min(groupMapDisplayNameArray.length, i + chunkSize));
+        Set<String> setToAdd = new HashSet<>(Arrays.asList(groupArray));
+        groupMapDisplayNameChunks.add(setToAdd);
+      }
 
-      List<JSONObject> groups = fetchAllEntitiesFromMsgGetEndpoint(groupsUrl, token);
+      for (Set<String> subSet : groupMapDisplayNameChunks) {
+        String displayNameFilter = URLEncoder
+            .encode(
+                String.format("displayName in (%s)",
+                    String.join(",",
+                        subSet.stream().map(k -> String.format("'%s'", k)).collect(Collectors.toList()))),
+                StandardCharsets.UTF_8.name());
 
-      groupIdsAndMapKeys
-          .putAll(groups.stream().collect(Collectors.toMap(o -> o.getString("id"), o -> o.getString("displayName"))));
+        URL groupsUrl = baseUri
+            .resolve(String.format("./groups?$top=999&$select=id,displayName&$filter=%s", displayNameFilter))
+            .toURL();
+
+        List<JSONObject> groups = fetchAllEntitiesFromMsgGetEndpoint(groupsUrl, token);
+
+        groupIdsAndMapKeys
+            .putAll(groups.stream().collect(Collectors.toMap(o -> o.getString("id"), o -> o.getString("displayName"))));
+      }
     }
 
     return groupIdsAndMapKeys;
