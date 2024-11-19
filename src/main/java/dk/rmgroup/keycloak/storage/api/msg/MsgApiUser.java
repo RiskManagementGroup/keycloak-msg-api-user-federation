@@ -13,7 +13,8 @@ public class MsgApiUser {
   private final boolean accountEnabled;
   private final Set<String> groups;
 
-  public MsgApiUser(String userPrincipalName, String mail, String givenName, String surname, String mobilePhone, boolean accountEnabled) {
+  public MsgApiUser(String userPrincipalName, String mail, String givenName, String surname, String mobilePhone,
+      boolean accountEnabled) {
     this.userPrincipalName = Optional.ofNullable(userPrincipalName).map(String::toLowerCase).orElse(userPrincipalName);
     this.mail = Optional.ofNullable(mail).map(String::toLowerCase).orElse(mail);
     this.givenName = givenName;
