@@ -1,18 +1,5 @@
 package dk.rmgroup.keycloak.storage.api.msg;
 
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_DEFAULT_AUTHORITY;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_DEFAULT_MSG_URL;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_DEFAULT_SCOPE;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_ALLOW_UPDATE_UPN_DOMAINS;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_AUTHORITY;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_CLIENT_ID;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUP_MAP;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_MSG_BASE_URL;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_SCOPE;
-import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_SECRET;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -48,8 +35,6 @@ import org.keycloak.component.ComponentValidationException;
 import org.keycloak.models.GroupModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
-import org.keycloak.models.KeycloakSessionTask;
-import org.keycloak.models.KeycloakSessionTaskWithResult;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.UserProvider;
@@ -66,6 +51,19 @@ import com.microsoft.aad.msal4j.ClientCredentialFactory;
 import com.microsoft.aad.msal4j.ClientCredentialParameters;
 import com.microsoft.aad.msal4j.ConfidentialClientApplication;
 import com.microsoft.aad.msal4j.IAuthenticationResult;
+
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_DEFAULT_AUTHORITY;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_DEFAULT_MSG_URL;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_DEFAULT_SCOPE;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_ALLOW_UPDATE_UPN_DOMAINS;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_AUTHORITY;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_CLIENT_ID;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUP_MAP;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_MSG_BASE_URL;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_SCOPE;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_SECRET;
 
 public class MsgApiUserStorageProviderFactory
     implements UserStorageProviderFactory<MsgApiUserStorageProvider>, ImportSynchronization {
@@ -193,14 +191,14 @@ public class MsgApiUserStorageProviderFactory
       throw new ComponentValidationException("Microsoft Graph API Base Url is required!");
     }
 
-    GroupMapConfig groupMapConfig = GetGroupMapConfig(realm, config);
+    GroupMapConfig groupMapConfig = GetGroupMapConfig(session, realm, config);
 
-    if (groupMapConfig.errors.size() > 0) {
+    if (!groupMapConfig.errors.isEmpty()) {
       throw new ComponentValidationException(
           String.format("Errors found in Group map: %s", String.join(", ", groupMapConfig.errors)));
     }
 
-    if (groupMapConfig.groupMap.size() == 0 && !config.get(CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS, false)) {
+    if (groupMapConfig.groupMap.isEmpty() && !config.get(CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS, false)) {
       throw new ComponentValidationException(
           "You must turn ON \"Import users not in mapped groups\", when Group map is not specified!");
     }
@@ -312,11 +310,11 @@ public class MsgApiUserStorageProviderFactory
   }
 
   class GroupMapConfig {
-    private Map<String, GroupModel> groupMap = new HashMap<String, GroupModel>();
+    private Map<String, GroupModel> groupMap = new HashMap<>();
 
-    private List<GroupModel> groupsForUsersNotInMappedGroups = new ArrayList<GroupModel>();
+    private List<GroupModel> groupsForUsersNotInMappedGroups = new ArrayList<>();
 
-    private List<String> errors = new ArrayList<String>();
+    private List<String> errors = new ArrayList<>();
 
     public Map<String, GroupModel> getGroupMap() {
       return groupMap;
@@ -342,12 +340,12 @@ public class MsgApiUserStorageProviderFactory
     final GroupMapConfig groupMapConfig = new GroupMapConfig();
     KeycloakModelUtils.runJobInTransaction(sessionFactory, session -> {
       RealmModel realm = session.realms().getRealm(realmId);
-      groupMapConfig.setProperties(GetGroupMapConfig(realm, config));
+      groupMapConfig.setProperties(GetGroupMapConfig(session, realm, config));
     });
     return groupMapConfig;
   }
 
-  private GroupMapConfig GetGroupMapConfig(RealmModel realm, ComponentModel config) {
+  private GroupMapConfig GetGroupMapConfig(KeycloakSession session, RealmModel realm, ComponentModel config) {
     GroupMapConfig groupMapConfig = new GroupMapConfig();
     Map<String, GroupModel> groupMap = groupMapConfig.groupMap;
     List<GroupModel> groupsForUsersNotInMappedGroups = groupMapConfig.groupsForUsersNotInMappedGroups;
@@ -360,7 +358,7 @@ public class MsgApiUserStorageProviderFactory
         Map<String, Object> jsonMap = new JSONObject(json).toMap();
         jsonMap.forEach((k, v) -> {
           try {
-            GroupModel kcGroup = KeycloakModelUtils.findGroupByPath(realm, v.toString());
+            GroupModel kcGroup = KeycloakModelUtils.findGroupByPath(session, realm, v.toString());
             if (kcGroup != null) {
               groupMap.put(k, kcGroup);
             } else {
@@ -386,7 +384,7 @@ public class MsgApiUserStorageProviderFactory
       Arrays.stream(config.get(CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS).split(",")).map(g -> g.trim())
           .forEach(g -> {
             try {
-              GroupModel kcGroup = KeycloakModelUtils.findGroupByPath(realm, g);
+              GroupModel kcGroup = KeycloakModelUtils.findGroupByPath(session, realm, g);
               if (kcGroup != null) {
                 groupsForUsersNotInMappedGroups.add(kcGroup);
               } else {
@@ -422,49 +420,40 @@ public class MsgApiUserStorageProviderFactory
     final AtomicInteger failedCount = new AtomicInteger(0);
 
     final int totalExistingUsers = KeycloakModelUtils.runJobInTransactionWithResult(sessionFactory,
-        new KeycloakSessionTaskWithResult<Integer>() {
-
-          @Override
-          public Integer run(KeycloakSession session) {
-            try {
-              RealmModel realm = session.realms().getRealm(realmId);
-              UserProvider userProvider = session.users();
-              return userProvider.getUsersCount(realm);
-            } catch (Exception e) {
-              logger.errorf(e,
-                  "Error getting user count in federation provider '%s'. Will not be able to remove non existing users!",
-                  fedModel.getName());
-              return -1;
-            }
+        (KeycloakSession session) -> {
+          try {
+            RealmModel realm = session.realms().getRealm(realmId);
+            UserProvider userProvider = session.users();
+            return userProvider.getUsersCount(realm);
+          } catch (Exception e) {
+            logger.errorf(e,
+                "Error getting user count in federation provider '%s'. Will not be able to remove non existing users!",
+                fedModel.getName());
+            return -1;
           }
-
         });
 
     if (totalExistingUsers > 0) {
       int totalPagesExistingUsers = (int) Math.ceil((double) totalExistingUsers / USER_REMOVE_PAGE_SIZE);
 
-      CopyOnWriteArrayList<UserModel> usersToRemove = new CopyOnWriteArrayList<UserModel>();
+      CopyOnWriteArrayList<UserModel> usersToRemove = new CopyOnWriteArrayList<>();
 
       IntStream.range(0, totalPagesExistingUsers).parallel().forEach(page -> {
-        KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
+        KeycloakModelUtils.runJobInTransaction(sessionFactory, (KeycloakSession session) -> {
+          RealmModel realm = session.realms().getRealm(realmId);
+          UserProvider userProvider = session.users();
+          int firstResult = page * USER_REMOVE_PAGE_SIZE;
+          int maxResults = USER_REMOVE_PAGE_SIZE;
 
-          @Override
-          public void run(KeycloakSession session) {
-            RealmModel realm = session.realms().getRealm(realmId);
-            UserProvider userProvider = session.users();
-            int firstResult = page * USER_REMOVE_PAGE_SIZE;
-            int maxResults = USER_REMOVE_PAGE_SIZE;
-
-            try {
-              usersToRemove.addAll(userProvider
-                .searchForUserStream(realm, new HashMap<String, String>(), firstResult, maxResults)
+          try {
+            usersToRemove.addAll(userProvider
+                .searchForUserStream(realm, new HashMap<>(), firstResult, maxResults)
                 .filter(u -> fedId.equals(u.getFederationLink()) && !apiUsersUpnSet.contains(u.getUsername()))
                 .collect(Collectors.toList()));
-            } catch (Exception e) {
-              logger.errorf(e,
-                  "Error getting users to remove in federation provider '%s'. Might not be able to remove all non existing users!",
-                  fedModel.getName());
-            }
+          } catch (Exception e) {
+            logger.errorf(e,
+                "Error getting users to remove in federation provider '%s'. Might not be able to remove all non existing users!",
+                fedModel.getName());
           }
         });
       });
@@ -475,28 +464,24 @@ public class MsgApiUserStorageProviderFactory
         int totalPagesUsersToRemove = (int) Math.ceil((double) totalUsersToRemove / USER_REMOVE_PAGE_SIZE);
         IntStream.range(0, totalPagesUsersToRemove).parallel().forEach(page -> {
 
-          KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
+          KeycloakModelUtils.runJobInTransaction(sessionFactory, (KeycloakSession session) -> {
+            RealmModel realm = session.realms().getRealm(realmId);
+            UserProvider userProvider = session.users();
 
-            @Override
-            public void run(KeycloakSession session) {
-              RealmModel realm = session.realms().getRealm(realmId);
-              UserProvider userProvider = session.users();
+            int startIndex = page * USER_REMOVE_PAGE_SIZE;
+            int endIndex = Math.min(startIndex + USER_REMOVE_PAGE_SIZE, totalUsersToRemove);
 
-              int startIndex = page * USER_REMOVE_PAGE_SIZE;
-              int endIndex = Math.min(startIndex + USER_REMOVE_PAGE_SIZE, totalUsersToRemove);
+            List<UserModel> usersToRemovePage = usersToRemove.subList(startIndex, endIndex);
 
-              List<UserModel> usersToRemovePage = usersToRemove.subList(startIndex, endIndex);
-
-              for (final UserModel user : usersToRemovePage) {
-                try {
-                  userProvider.removeUser(realm, user);
-                  removedCount.incrementAndGet();
-                } catch (Exception e) {
-                  logger.errorf(e,
-                      "Error removing non existing user with username '%s' in federation provider '%s'",
-                      user.getUsername(), fedModel.getName());
-                  failedCount.incrementAndGet();
-                }
+            for (final UserModel user : usersToRemovePage) {
+              try {
+                userProvider.removeUser(realm, user);
+                removedCount.incrementAndGet();
+              } catch (Exception e) {
+                logger.errorf(e,
+                    "Error removing non existing user with username '%s' in federation provider '%s'",
+                    user.getUsername(), fedModel.getName());
+                failedCount.incrementAndGet();
               }
             }
           });
@@ -509,128 +494,125 @@ public class MsgApiUserStorageProviderFactory
     if (totalApiUsers > 0) {
       int totalPages = (int) Math.ceil((double) totalApiUsers / USER_IMPORT_PAGE_SIZE);
       IntStream.range(0, totalPages).parallel().forEach(page -> {
-        KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
+        KeycloakModelUtils.runJobInTransaction(sessionFactory, (KeycloakSession session) -> {
+          RealmModel realm = session.realms().getRealm(realmId);
+          UserProvider userProvider = session.users();
 
-          @Override
-          public void run(KeycloakSession session) {
-            RealmModel realm = session.realms().getRealm(realmId);
-            UserProvider userProvider = session.users();
+          int startIndex = page * USER_IMPORT_PAGE_SIZE;
+          int endIndex = Math.min(startIndex + USER_IMPORT_PAGE_SIZE, totalApiUsers);
 
-            int startIndex = page * USER_IMPORT_PAGE_SIZE;
-            int endIndex = Math.min(startIndex + USER_IMPORT_PAGE_SIZE, totalApiUsers);
+          List<MsgApiUser> apiUsersPage = apiUsers.subList(startIndex, endIndex);
 
-            List<MsgApiUser> apiUsersPage = apiUsers.subList(startIndex, endIndex);
-
-            apiUsersPage.forEach(apiUser -> {
-              try {
-                UserModel importedUser;
-                UserModel existingLocalUser = userProvider.getUserByUsername(realm, apiUser.getUserPrincipalName());
-                if (existingLocalUser == null) {
-                  importedUser = userProvider.addUser(realm, apiUser.getUserPrincipalName());
-                } else {
-                  if (fedId.equals(existingLocalUser.getFederationLink())) {
-                    importedUser = existingLocalUser;
-                  } else if (allowUpdateUpnDomains != null) {
-                    String upn = apiUser.getUserPrincipalName();
-                    if (!allowUpdateUpnDomains.stream().anyMatch(domain -> upn.endsWith("@" + domain))) {
-                      logger.warnf(
-                          "User with userPrincipalName '%s' is not updated during sync as he already exists in Keycloak database but is not linked to federation provider '%s' and UPN domain does not match any of '%s'",
-                          apiUser.getUserPrincipalName(), fedModel.getName(), String.join(", ", allowUpdateUpnDomains));
-                      failedCount.incrementAndGet();
-                      return;
-                    }
-                    importedUser = existingLocalUser;
-                  } else {
+          apiUsersPage.forEach(apiUser -> {
+            try {
+              UserModel importedUser;
+              UserModel existingLocalUser = userProvider.getUserByUsername(realm, apiUser.getUserPrincipalName());
+              if (existingLocalUser == null) {
+                importedUser = userProvider.addUser(realm, apiUser.getUserPrincipalName());
+              } else {
+                if (fedId.equals(existingLocalUser.getFederationLink())) {
+                  importedUser = existingLocalUser;
+                } else if (allowUpdateUpnDomains != null) {
+                  String upn = apiUser.getUserPrincipalName();
+                  if (!allowUpdateUpnDomains.stream().anyMatch(domain -> upn.endsWith("@" + domain))) {
                     logger.warnf(
-                        "User with userPrincipalName '%s' is not updated during sync as he already exists in Keycloak database but is not linked to federation provider '%s'",
-                        apiUser.getUserPrincipalName(), fedModel.getName());
+                        "User with userPrincipalName '%s' is not updated during sync as he already exists in Keycloak database but is not linked to federation provider '%s' and UPN domain does not match any of '%s'",
+                        apiUser.getUserPrincipalName(), fedModel.getName(), String.join(", ", allowUpdateUpnDomains));
                     failedCount.incrementAndGet();
                     return;
                   }
+                  importedUser = existingLocalUser;
+                } else {
+                  logger.warnf(
+                      "User with userPrincipalName '%s' is not updated during sync as he already exists in Keycloak database but is not linked to federation provider '%s'",
+                      apiUser.getUserPrincipalName(), fedModel.getName());
+                  failedCount.incrementAndGet();
+                  return;
                 }
+              }
 
-                boolean attributesChanged = !apiUserEqualsLocalUser(apiUser, existingLocalUser);
+              boolean attributesChanged = !apiUserEqualsLocalUser(apiUser, existingLocalUser);
 
-                if (attributesChanged) {
-                  importedUser.setFederationLink(fedId);
-                  importedUser.setEmail(apiUser.getMail());
-                  importedUser.setEmailVerified(true);
-                  importedUser.setFirstName(apiUser.getGivenName());
-                  importedUser.setLastName(apiUser.getSurname());
-                  importedUser.setSingleAttribute("mobile", apiUser.getMobilePhone());
-                  importedUser.setEnabled(apiUser.getAccountEnabled());
+              if (attributesChanged) {
+                importedUser.setFederationLink(fedId);
+                importedUser.setEmail(apiUser.getMail());
+                importedUser.setEmailVerified(true);
+                importedUser.setFirstName(apiUser.getGivenName());
+                importedUser.setLastName(apiUser.getSurname());
+                importedUser.setSingleAttribute("mobile", apiUser.getMobilePhone());
+                importedUser.setEnabled(apiUser.getAccountEnabled());
+              }
+
+              boolean groupsChanged = false;
+
+              Set<String> apiUserGroups = apiUser.getGroups();
+
+              HashSet<String> groupIds = new HashSet<>();
+
+              if (groupMap != null && !groupMap.isEmpty() && apiUserGroups != null && !apiUserGroups.isEmpty()) {
+                for (String apiUserGroup : apiUserGroups) {
+                  if (groupMap.containsKey(apiUserGroup)) {
+                    GroupModel kcGroup = groupMap.get(apiUserGroup);
+                    groupIds.add(kcGroup.getId());
+                    if (!importedUser.isMemberOf(kcGroup)) {
+                      groupsChanged = true;
+                      importedUser.joinGroup(kcGroup);
+                    }
+                  }
                 }
+                List<GroupModel> groupsToLeave = importedUser.getGroupsStream().filter(g -> {
+                  return !groupIds.contains(g.getId());
+                }).collect(Collectors.toList());
 
-                boolean groupsChanged = false;
-
-                Set<String> apiUserGroups = apiUser.getGroups();
-
-                HashSet<String> groupIds = new HashSet<String>();
-
-                if (groupMap != null && groupMap.size() > 0 && apiUserGroups != null && apiUserGroups.size() > 0) {
-                  for (String apiUserGroup : apiUserGroups) {
-                    if (groupMap.containsKey(apiUserGroup)) {
-                      GroupModel kcGroup = groupMap.get(apiUserGroup);
-                      groupIds.add(kcGroup.getId());
-                      if (!importedUser.isMemberOf(kcGroup)) {
-                        groupsChanged = true;
-                        importedUser.joinGroup(kcGroup);
-                      }
+                if (!groupsToLeave.isEmpty()) {
+                  groupsChanged = true;
+                  groupsToLeave.forEach(g -> {
+                    importedUser.leaveGroup(g);
+                  });
+                }
+              } else {
+                if ((apiUserGroups == null || apiUserGroups.isEmpty())
+                    && !groupsForUsersNotInMappedGroups.isEmpty()) {
+                  for (GroupModel g : groupsForUsersNotInMappedGroups) {
+                    groupIds.add(g.getId());
+                    if (!importedUser.isMemberOf(g)) {
+                      groupsChanged = true;
+                      importedUser.joinGroup(g);
                     }
                   }
                   List<GroupModel> groupsToLeave = importedUser.getGroupsStream().filter(g -> {
                     return !groupIds.contains(g.getId());
                   }).collect(Collectors.toList());
 
-                  if (groupsToLeave.size() > 0) {
+                  if (!groupsToLeave.isEmpty()) {
                     groupsChanged = true;
                     groupsToLeave.forEach(g -> {
                       importedUser.leaveGroup(g);
                     });
                   }
                 } else {
-                  if ((apiUserGroups == null || apiUserGroups.size() == 0) && groupsForUsersNotInMappedGroups.size() > 0) {
-                    for (GroupModel g : groupsForUsersNotInMappedGroups) {
-                      groupIds.add(g.getId());
-                      if (!importedUser.isMemberOf(g)) {
-                        groupsChanged = true;
-                        importedUser.joinGroup(g);
-                      }
-                    }
-                    List<GroupModel> groupsToLeave = importedUser.getGroupsStream().filter(g -> {
-                      return !groupIds.contains(g.getId());
-                    }).collect(Collectors.toList());
+                  List<GroupModel> groupsToLeave = importedUser.getGroupsStream().collect(Collectors.toList());
 
-                    if (groupsToLeave.size() > 0) {
-                      groupsChanged = true;
-                      groupsToLeave.forEach(g -> {
-                        importedUser.leaveGroup(g);
-                      });
-                    }
-                  } else {
-                    List<GroupModel> groupsToLeave = importedUser.getGroupsStream().collect(Collectors.toList());
-
-                    if (groupsToLeave.size() > 0) {
-                      groupsChanged = true;
-                      groupsToLeave.forEach(g -> {
-                        importedUser.leaveGroup(g);
-                      });
-                    }
+                  if (!groupsToLeave.isEmpty()) {
+                    groupsChanged = true;
+                    groupsToLeave.forEach(g -> {
+                      importedUser.leaveGroup(g);
+                    });
                   }
                 }
-
-                if (existingLocalUser == null) {
-                  addedCount.incrementAndGet();
-                } else if (attributesChanged || groupsChanged) {
-                  updatedCount.incrementAndGet();
-                }
-              } catch (Exception e) {
-                logger.errorf(e, "Failed during import of user '%s' from Microsoft Graph API",
-                    apiUser.getUserPrincipalName());
-                failedCount.incrementAndGet();
               }
-            });
-          }
+
+              if (existingLocalUser == null) {
+                addedCount.incrementAndGet();
+              } else if (attributesChanged || groupsChanged) {
+                updatedCount.incrementAndGet();
+              }
+            } catch (Exception e) {
+              logger.errorf(e, "Failed during import of user '%s' from Microsoft Graph API",
+                  apiUser.getUserPrincipalName());
+              failedCount.incrementAndGet();
+            }
+          });
         });
       });
     }
@@ -690,7 +672,7 @@ public class MsgApiUserStorageProviderFactory
 
   private static List<JSONObject> fetchAllEntitiesFromMsgGetEndpoint(URL endpointUrl, String token)
       throws Exception {
-    List<JSONObject> odataObjects = new ArrayList<JSONObject>();
+    List<JSONObject> odataObjects = new ArrayList<>();
     URL odataNextLink = endpointUrl;
 
     do {
@@ -729,18 +711,20 @@ public class MsgApiUserStorageProviderFactory
       }
     }).collect(Collectors.toSet());
 
-    Set<String> groupMapDisplayNameSet = new HashSet<String>(groupMapKeySet);
+    Set<String> groupMapDisplayNameSet = new HashSet<>(groupMapKeySet);
     groupMapDisplayNameSet.removeAll(groupMapUUIDSet);
 
-    Map<String, String> groupIdsAndMapKeys = new HashMap<String, String>();
+    Map<String, String> groupIdsAndMapKeys = new HashMap<>();
 
-    if (groupMapUUIDSet.size() > 0) {
-      groupIdsAndMapKeys.putAll(groupMapKeySet.stream().collect(Collectors.toMap(k -> k, k -> k)));
+    if (!groupMapUUIDSet.isEmpty()) {
+      groupIdsAndMapKeys.putAll(groupMapUUIDSet.stream().collect(Collectors.toMap(k -> k, k -> k)));
     }
 
-    if (groupMapDisplayNameSet.size() > 0) {
-      // We split the groupMapDisplayNameSet into chunks of 15 groups to avoid hitting the max filters of 15 for the $filter query in the Microsoft Graph API
-      // See: https://learn.microsoft.com/en-us/graph/filter-query-parameter?tabs=http#operators-and-functions-supported-in-filter-expressions
+    if (!groupMapDisplayNameSet.isEmpty()) {
+      // We split the groupMapDisplayNameSet into chunks of 15 groups to avoid hitting
+      // the max filters of 15 for the $filter query in the Microsoft Graph API
+      // See:
+      // https://learn.microsoft.com/en-us/graph/filter-query-parameter?tabs=http#operators-and-functions-supported-in-filter-expressions
       int chunkSize = 15;
       int arraySize = (int) Math.ceil(groupMapDisplayNameSet.size() / (double) chunkSize);
       List<Set<String>> groupMapDisplayNameChunks = new ArrayList<>(arraySize);
@@ -783,7 +767,7 @@ public class MsgApiUserStorageProviderFactory
 
     URI baseUri = new URI(msgBaseUrl);
 
-    if (groupMap != null && groupMap.size() > 0) {
+    if (groupMap != null && !groupMap.isEmpty()) {
       Map<String, String> groupIdsAndMapKeys = getMsgApiGroupIdsAndMapKeys(msgBaseUrl, token, groupMap);
 
       groupIdsAndMapKeys.forEach((groupId, groupMapKey) -> {

@@ -13,7 +13,6 @@ import org.keycloak.models.ClientScopeModel;
 import org.keycloak.models.GroupModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
-import org.keycloak.models.KeycloakSessionTask;
 import org.keycloak.models.ProtocolMapperModel;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.RoleModel;
@@ -34,12 +33,8 @@ public class MsgAdminEventLogger {
   }
 
   public void Log(String resourcePath, Object representation) {
-    KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
-
-      @Override
-      public void run(KeycloakSession session) {
-        Log(session, realmId, resourcePath, representation);
-      }
+    KeycloakModelUtils.runJobInTransaction(sessionFactory, (KeycloakSession session) -> {
+      Log(session, realmId, resourcePath, representation);
     });
   }
 
