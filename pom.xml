@@ -7,7 +7,7 @@
 
   <groupId>dk.rmgroup.keycloak</groupId>
   <artifactId>msg-api-user-federation</artifactId>
-  <version>23.0.7</version>
+  <version>24.0.5</version>
 
   <name>msg-api-user-federation</name>
   <url>hhttps://github.com/RiskManagementGroup/keycloak-msg-api-user-federation</url>
@@ -16,7 +16,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
-    <keycloak.version>23.0.7</keycloak.version>
+    <keycloak.version>24.0.5</keycloak.version>
   </properties>
 
   <dependencies>
@@ -72,7 +72,7 @@
 
     <dependency>
       <groupId>org.keycloak</groupId>
-      <artifactId>keycloak-model-legacy-private</artifactId>
+      <artifactId>keycloak-model-storage-private</artifactId>
       <version>${keycloak.version}</version>
     </dependency>
   </dependencies>
