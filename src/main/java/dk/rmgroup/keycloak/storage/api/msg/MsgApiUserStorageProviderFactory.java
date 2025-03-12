@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
@@ -29,6 +30,7 @@ import java.util.stream.IntStream;
 
 import org.jboss.logging.Logger;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.keycloak.component.ComponentModel;
 import org.keycloak.component.ComponentValidationException;
@@ -372,7 +374,7 @@ public class MsgApiUserStorageProviderFactory
             errors.add(errorMessage);
           }
         });
-      } catch (Exception e) {
+      } catch (JSONException e) {
         String errorMessage = String.format("Error in group map JSON '%s'. '%s'", json, e.getMessage());
         logger.error(errorMessage, e);
         errors.add(errorMessage);
@@ -684,7 +686,7 @@ public class MsgApiUserStorageProviderFactory
       if (odataJsonObject.has("@odata.nextLink")) {
         try {
           odataNextLink = new URL(odataJsonObject.getString("@odata.nextLink"));
-        } catch (Exception e) {
+        } catch (MalformedURLException | JSONException e) {
           odataNextLink = null;
           logger.error("Unable to get @odata.nextLink", e);
         }
