@@ -254,8 +254,12 @@ public class MsgApiUserStorageProviderFactory
       UserStorageProviderModel model) {
     MsgAdminEventLogger adminEventLogger = new MsgAdminEventLogger(sessionFactory, realmId);
 
-    adminEventLogger.Log(String.format("user-storage/%s/sync-starting", model.getName()),
-        String.format("Starting MSG user synchronization for '%s'", model.getName()));
+    try {
+      adminEventLogger.Log(String.format("user-storage/%s/sync-starting", model.getName()),
+          String.format("Starting MSG user synchronization for '%s'", model.getName()));
+    } catch (Exception e) {
+      logger.errorf(e, "MSG error logging");
+    }
 
     SynchronizationResult synchronizationResult = new SynchronizationResult();
 
@@ -425,6 +429,7 @@ public class MsgApiUserStorageProviderFactory
         (KeycloakSession session) -> {
           try {
             RealmModel realm = session.realms().getRealm(realmId);
+            session.getContext().setRealm(realm);
             UserProvider userProvider = session.users();
             return userProvider.getUsersCount(realm);
           } catch (Exception e) {
@@ -443,6 +448,7 @@ public class MsgApiUserStorageProviderFactory
       IntStream.range(0, totalPagesExistingUsers).parallel().forEach(page -> {
         KeycloakModelUtils.runJobInTransaction(sessionFactory, (KeycloakSession session) -> {
           RealmModel realm = session.realms().getRealm(realmId);
+          session.getContext().setRealm(realm);
           UserProvider userProvider = session.users();
           int firstResult = page * USER_REMOVE_PAGE_SIZE;
           int maxResults = USER_REMOVE_PAGE_SIZE;
@@ -468,6 +474,7 @@ public class MsgApiUserStorageProviderFactory
 
           KeycloakModelUtils.runJobInTransaction(sessionFactory, (KeycloakSession session) -> {
             RealmModel realm = session.realms().getRealm(realmId);
+            session.getContext().setRealm(realm);
             UserProvider userProvider = session.users();
 
             int startIndex = page * USER_REMOVE_PAGE_SIZE;
@@ -498,6 +505,7 @@ public class MsgApiUserStorageProviderFactory
       IntStream.range(0, totalPages).parallel().forEach(page -> {
         KeycloakModelUtils.runJobInTransaction(sessionFactory, (KeycloakSession session) -> {
           RealmModel realm = session.realms().getRealm(realmId);
+          session.getContext().setRealm(realm);
           UserProvider userProvider = session.users();
 
           int startIndex = page * USER_IMPORT_PAGE_SIZE;

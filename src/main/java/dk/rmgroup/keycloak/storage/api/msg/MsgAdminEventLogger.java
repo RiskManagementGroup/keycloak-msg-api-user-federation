@@ -11,6 +11,7 @@ import org.keycloak.events.admin.ResourceType;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.ClientScopeModel;
 import org.keycloak.models.GroupModel;
+import org.keycloak.models.KeycloakContext;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.models.ProtocolMapperModel;
@@ -40,6 +41,9 @@ public class MsgAdminEventLogger {
 
   public static void Log(KeycloakSession session, String realmId, String resourcePath, Object representation) {
     RealmModel realm = session.realms().getRealm(realmId);
+    KeycloakContext context = session.getContext();
+    context.setRealm(realm);
+
     AdminEventBuilder adminEventBuilder = new AdminEventBuilder(realm, getAdminAuth(realm), session,
         getClientConnection());
 
@@ -737,7 +741,7 @@ public class MsgAdminEventLogger {
 
       @Override
       public String getRemoteHost() {
-        throw new UnsupportedOperationException("Unimplemented method 'getRemoteHost'");
+        return "127.0.0.1";
       }
 
       @Override
