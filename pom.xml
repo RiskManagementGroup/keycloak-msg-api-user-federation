@@ -7,7 +7,7 @@
 
   <groupId>dk.rmgroup.keycloak</groupId>
   <artifactId>msg-api-user-federation</artifactId>
-  <version>26.2.3</version>
+  <version>26.2.4</version>
 
   <name>msg-api-user-federation</name>
   <url>hhttps://github.com/RiskManagementGroup/keycloak-msg-api-user-federation</url>
@@ -16,7 +16,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
-    <keycloak.version>26.2.3</keycloak.version>
+    <keycloak.version>26.2.4</keycloak.version>
   </properties>
 
   <dependencies>
@@ -29,7 +29,7 @@
     <dependency>
       <groupId>com.microsoft.azure</groupId>
       <artifactId>msal4j</artifactId>
-      <version>1.20.1</version>
+      <version>1.13.8</version>
     </dependency>
     <dependency>
       <groupId>net.minidev</groupId>
