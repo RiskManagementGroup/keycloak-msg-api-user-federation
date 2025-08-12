@@ -7,7 +7,7 @@
 
   <groupId>dk.rmgroup.keycloak</groupId>
   <artifactId>msg-api-user-federation</artifactId>
-  <version>26.2.5</version>
+  <version>26.2.5-1</version>
 
   <name>msg-api-user-federation</name>
   <url>https://github.com/RiskManagementGroup/keycloak-msg-api-user-federation</url>

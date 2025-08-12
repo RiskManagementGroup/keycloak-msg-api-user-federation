@@ -51,6 +51,7 @@ import org.keycloak.storage.managers.UserStorageSyncManager;
 import org.keycloak.storage.user.ImportSynchronization;
 import org.keycloak.storage.user.SynchronizationResult;
 
+import com.google.common.base.Strings;
 import com.microsoft.aad.msal4j.ClientCredentialFactory;
 import com.microsoft.aad.msal4j.ClientCredentialParameters;
 import com.microsoft.aad.msal4j.ConfidentialClientApplication;
@@ -62,6 +63,7 @@ import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConst
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_ALLOW_UPDATE_UPN_DOMAINS;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_AUTHORITY;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_CLIENT_ID;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_DO_NOT_OVERRIDE_MOBILE_WITH_EMPTY;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUP_MAP;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS;
@@ -145,6 +147,12 @@ public class MsgApiUserStorageProviderFactory
         .type(ProviderConfigProperty.STRING_TYPE)
         .helpText(
             "Comma separated list of Keycloak groups to be assigned to users who are not members of any of the mapped groups.")
+        .add()
+        .property()
+        .name(CONFIG_KEY_DO_NOT_OVERRIDE_MOBILE_WITH_EMPTY)
+        .label("Do not override mobile numbers with empty value")
+        .type(ProviderConfigProperty.BOOLEAN_TYPE)
+        .helpText("If enabled, the mobile phone number will not be overridden if the new value is empty.")
         .add()
         .build();
   }
@@ -293,8 +301,10 @@ public class MsgApiUserStorageProviderFactory
                 .collect(Collectors.toList());
           }
 
+          Boolean doNotOverrideMobileWithEmpty = model.get(CONFIG_KEY_DO_NOT_OVERRIDE_MOBILE_WITH_EMPTY, false);
+
           MsgApiUserResult result = importApiUsers(sessionFactory, realmId, model, apiUsers, allowUpdateUpnDomains,
-              groupMapConfig);
+              groupMapConfig, doNotOverrideMobileWithEmpty);
 
           synchronizationResult = result.synchronizationResult;
           errors = result.errors;
@@ -454,7 +464,7 @@ public class MsgApiUserStorageProviderFactory
 
   private MsgApiUserResult importApiUsers(KeycloakSessionFactory sessionFactory, final String realmId,
       final ComponentModel fedModel, List<MsgApiUser> apiUsers, List<String> allowUpdateUpnDomains,
-      GroupMapConfig groupMapConfig) {
+      GroupMapConfig groupMapConfig, Boolean doNotOverrideMobileWithEmpty) {
     final Map<String, GroupModel> groupMap = groupMapConfig.groupMap;
     final List<GroupModel> groupsForUsersNotInMappedGroups = groupMapConfig.groupsForUsersNotInMappedGroups;
 
@@ -610,7 +620,10 @@ public class MsgApiUserStorageProviderFactory
                 importedUser.setEmailVerified(true);
                 importedUser.setFirstName(apiUser.getGivenName());
                 importedUser.setLastName(apiUser.getSurname());
-                importedUser.setSingleAttribute("mobile", apiUser.getMobilePhone());
+                String mobilePhone = apiUser.getMobilePhone();
+                if (!Strings.isNullOrEmpty(mobilePhone) || !doNotOverrideMobileWithEmpty) {
+                  importedUser.setSingleAttribute("mobile", mobilePhone);
+                }
                 importedUser.setEnabled(apiUser.getAccountEnabled());
               }
 
