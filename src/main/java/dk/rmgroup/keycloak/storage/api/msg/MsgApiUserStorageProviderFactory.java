@@ -45,9 +45,9 @@ import org.keycloak.models.UserProvider;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.provider.ProviderConfigProperty;
 import org.keycloak.provider.ProviderConfigurationBuilder;
+import org.keycloak.storage.StoreSyncEvent;
 import org.keycloak.storage.UserStorageProviderFactory;
 import org.keycloak.storage.UserStorageProviderModel;
-import org.keycloak.storage.managers.UserStorageSyncManager;
 import org.keycloak.storage.user.ImportSynchronization;
 import org.keycloak.storage.user.SynchronizationResult;
 
@@ -255,7 +255,7 @@ public class MsgApiUserStorageProviderFactory
       if (oldProvider.getChangedSyncPeriod() == newProvider.getChangedSyncPeriod()
           && oldProvider.getFullSyncPeriod() == newProvider.getFullSyncPeriod()) {
         logger.debug("Ensure periodic sync is refreshed if there are any changes to the config");
-        UserStorageSyncManager.notifyToRefreshPeriodicSync(session, realm, newProvider, false);
+        StoreSyncEvent.fire(session, realm, newProvider, false);
       }
     }
   }
