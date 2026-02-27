@@ -205,9 +205,12 @@ public class MsgApiUserStorageProviderFactory
 
     GroupMapConfig groupMapConfig = GetGroupMapConfig(session, realm, config);
 
-    if (!groupMapConfig.errors.isEmpty()) {
+    if (!groupMapConfig.errors.isEmpty() || !groupMapConfig.criticalErrors.isEmpty()) {
+      List<String> allErrors = new ArrayList<>();
+      allErrors.addAll(groupMapConfig.errors);
+      allErrors.addAll(groupMapConfig.criticalErrors);
       throw new ComponentValidationException(
-          String.format("Errors found in Group map: %s", String.join(", ", groupMapConfig.errors)));
+          String.format("Errors found in Group map: %s", String.join(", ", allErrors)));
     }
 
     if (groupMapConfig.groupMap.isEmpty() && !config.get(CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS, false)) {
@@ -289,6 +292,11 @@ public class MsgApiUserStorageProviderFactory
 
       GroupMapConfig groupMapConfig = GetGroupMapConfig(sessionFactory, realmId, model);
 
+      if (!groupMapConfig.criticalErrors.isEmpty()) {
+        throw new ConfigException(
+            String.format("Critical errors found in Group map: %s", String.join(", ", groupMapConfig.criticalErrors)));
+      }
+
       try {
         List<MsgApiUser> apiUsers = getMsgApiUsers(model.get(CONFIG_KEY_MSG_BASE_URL), token, groupMapConfig,
             model.get(CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS, false));
@@ -326,6 +334,11 @@ public class MsgApiUserStorageProviderFactory
             model.getName(), getErrorMessage(e)));
         synchronizationResult.setFailed(1);
       }
+    } catch (ConfigException e) {
+      logger.errorf(e, "Configuration error for federation provider '%s': %s", model.getName(), e.getMessage());
+      errors
+          .add(String.format("Configuration error for federation provider '%s': %s", model.getName(), e.getMessage()));
+      synchronizationResult.setFailed(1);
     } catch (Exception e) {
       logger.errorf(e,
           "Error getting token for federation provider '%s'. Please check Authority, client ID, secret and scope!",
@@ -375,6 +388,8 @@ public class MsgApiUserStorageProviderFactory
 
     private List<String> errors = new ArrayList<>();
 
+    private List<String> criticalErrors = new ArrayList<>();
+
     public Map<String, GroupModel> getGroupMap() {
       return groupMap;
     }
@@ -387,10 +402,15 @@ public class MsgApiUserStorageProviderFactory
       return errors;
     }
 
+    public List<String> getCriticalErrors() {
+      return criticalErrors;
+    }
+
     public void setProperties(GroupMapConfig groupMapConfig) {
       groupMap = groupMapConfig.groupMap;
       groupsForUsersNotInMappedGroups = groupMapConfig.groupsForUsersNotInMappedGroups;
       errors = groupMapConfig.errors;
+      criticalErrors = groupMapConfig.criticalErrors;
     }
   }
 
@@ -409,6 +429,7 @@ public class MsgApiUserStorageProviderFactory
     Map<String, GroupModel> groupMap = groupMapConfig.groupMap;
     List<GroupModel> groupsForUsersNotInMappedGroups = groupMapConfig.groupsForUsersNotInMappedGroups;
     List<String> errors = groupMapConfig.errors;
+    List<String> criticalErrors = groupMapConfig.criticalErrors;
 
     if (config.contains(CONFIG_KEY_GROUP_MAP)) {
       String json = config.get(CONFIG_KEY_GROUP_MAP);
@@ -428,7 +449,7 @@ public class MsgApiUserStorageProviderFactory
           } catch (Exception e) {
             String errorMessage = String.format("Error getting Keycloak group '%s'. '%s'", v, e.getMessage());
             logger.error(errorMessage, e);
-            errors.add(errorMessage);
+            criticalErrors.add(errorMessage);
           }
         });
       } catch (JSONException e) {
@@ -454,7 +475,7 @@ public class MsgApiUserStorageProviderFactory
             } catch (Exception e) {
               String errorMessage = String.format("Error getting Keycloak group '%s'. '%s'", g, e.getMessage());
               logger.error(errorMessage, e);
-              errors.add(errorMessage);
+              criticalErrors.add(errorMessage);
             }
           });
     }
