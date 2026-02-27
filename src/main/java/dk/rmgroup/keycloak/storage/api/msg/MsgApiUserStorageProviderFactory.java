@@ -455,7 +455,7 @@ public class MsgApiUserStorageProviderFactory
       } catch (JSONException e) {
         String errorMessage = String.format("Error in group map JSON '%s'. '%s'", json, e.getMessage());
         logger.error(errorMessage, e);
-        errors.add(errorMessage);
+        criticalErrors.add(errorMessage);
       }
     }
 
