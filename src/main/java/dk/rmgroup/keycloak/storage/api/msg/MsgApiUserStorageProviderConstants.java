@@ -13,5 +13,6 @@ public final class MsgApiUserStorageProviderConstants {
     public static final String CONFIG_DEFAULT_AUTHORITY = "https://login.microsoftonline.com/Enter_the_Tenant_Id_Here/";
     public static final String CONFIG_DEFAULT_MSG_URL = "https://graph.microsoft.com/v1.0/";
     public static final String CONFIG_DEFAULT_SCOPE = "https://graph.microsoft.com/.default";
+    public static final String CONFIG_KEY_ONLY_USE_GROUPS_IN_GROUP_MAP = "onlyUseGroupsInGroupMap";
     public static final String CONFIG_KEY_DO_NOT_OVERRIDE_MOBILE_WITH_EMPTY = "doNotOverrideMobileWithEmpty";
 }

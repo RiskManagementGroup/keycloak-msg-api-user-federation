@@ -68,6 +68,7 @@ import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConst
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUP_MAP;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_MSG_BASE_URL;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_ONLY_USE_GROUPS_IN_GROUP_MAP;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_SCOPE;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_SECRET;
 
@@ -149,6 +150,14 @@ public class MsgApiUserStorageProviderFactory
             "Comma separated list of Keycloak groups to be assigned to users who are not members of any of the mapped groups.")
         .add()
         .property()
+        .name(
+            CONFIG_KEY_ONLY_USE_GROUPS_IN_GROUP_MAP)
+        .label("Only handle groups in group map")
+        .type(ProviderConfigProperty.BOOLEAN_TYPE)
+        .helpText(
+            "Disregard any and all groups not mentioned above")
+        .add()
+        .property()
         .name(CONFIG_KEY_DO_NOT_OVERRIDE_MOBILE_WITH_EMPTY)
         .label("Do not override mobile numbers with empty value")
         .type(ProviderConfigProperty.BOOLEAN_TYPE)
@@ -203,7 +212,7 @@ public class MsgApiUserStorageProviderFactory
       throw new ComponentValidationException("Microsoft Graph API Base Url is required!");
     }
 
-    GroupMapConfig groupMapConfig = GetGroupMapConfig(session, realm, config);
+    GroupMapConfig groupMapConfig = getGroupMapConfig(session, realm, config);
 
     if (!groupMapConfig.errors.isEmpty() || !groupMapConfig.criticalErrors.isEmpty()) {
       List<String> allErrors = new ArrayList<>();
@@ -274,7 +283,7 @@ public class MsgApiUserStorageProviderFactory
     EmailSenderProvider emailSenderProvider = session.getProvider(EmailSenderProvider.class);
 
     try {
-      adminEventLogger.Log(String.format("user-storage/%s/sync-starting", model.getName()),
+      adminEventLogger.log(String.format("user-storage/%s/sync-starting", model.getName()),
           String.format("Starting MSG user synchronization for '%s'", model.getName()));
     } catch (Exception e) {
       logger.errorf(e, "MSG error logging");
@@ -290,7 +299,7 @@ public class MsgApiUserStorageProviderFactory
           model.get(CONFIG_KEY_SECRET),
           model.get(CONFIG_KEY_SCOPE));
 
-      GroupMapConfig groupMapConfig = GetGroupMapConfig(sessionFactory, realmId, model);
+      GroupMapConfig groupMapConfig = getGroupMapConfig(sessionFactory, realmId, model);
 
       if (!groupMapConfig.criticalErrors.isEmpty()) {
         throw new ConfigException(
@@ -304,8 +313,8 @@ public class MsgApiUserStorageProviderFactory
         try {
           String allowUpdateUpnDomainsCommaSeparated = model.get(CONFIG_KEY_ALLOW_UPDATE_UPN_DOMAINS);
           List<String> allowUpdateUpnDomains = null;
-          if (allowUpdateUpnDomainsCommaSeparated != null && allowUpdateUpnDomainsCommaSeparated.length() > 0) {
-            allowUpdateUpnDomains = Arrays.stream(allowUpdateUpnDomainsCommaSeparated.split(",")).map(d -> d.trim())
+          if (allowUpdateUpnDomainsCommaSeparated != null && !allowUpdateUpnDomainsCommaSeparated.isEmpty()) {
+            allowUpdateUpnDomains = Arrays.stream(allowUpdateUpnDomainsCommaSeparated.split(",")).map(String::trim)
                 .collect(Collectors.toList());
           }
 
@@ -347,10 +356,12 @@ public class MsgApiUserStorageProviderFactory
           "Error getting token for federation provider '%s'. Please check Authority, client ID, secret and scope! Exception:<br/>%s",
           model.getName(), getErrorMessage(e)));
       synchronizationResult.setFailed(1);
+    } finally {
+      session.close();
     }
 
     if (hasImportFinished) {
-      adminEventLogger.Log(String.format("user-storage/%s/sync-finished", model.getName()), synchronizationResult);
+      adminEventLogger.log(String.format("user-storage/%s/sync-finished", model.getName()), synchronizationResult);
 
       if (synchronizationResult.getFailed() > 0) {
         try {
@@ -364,7 +375,7 @@ public class MsgApiUserStorageProviderFactory
         }
       }
     } else {
-      adminEventLogger.Log(String.format("user-storage/%s/sync-error", model.getName()),
+      adminEventLogger.log(String.format("user-storage/%s/sync-error", model.getName()),
           "See server log for more details!");
 
       try {
@@ -394,7 +405,7 @@ public class MsgApiUserStorageProviderFactory
       return groupMap;
     }
 
-    public List<GroupModel> GetGroupsForUsersNotInMappedGroups() {
+    public List<GroupModel> getGroupsForUsersNotInMappedGroups() {
       return groupsForUsersNotInMappedGroups;
     }
 
@@ -414,17 +425,17 @@ public class MsgApiUserStorageProviderFactory
     }
   }
 
-  private GroupMapConfig GetGroupMapConfig(KeycloakSessionFactory sessionFactory, final String realmId,
+  private GroupMapConfig getGroupMapConfig(KeycloakSessionFactory sessionFactory, final String realmId,
       ComponentModel config) {
     final GroupMapConfig groupMapConfig = new GroupMapConfig();
     KeycloakModelUtils.runJobInTransaction(sessionFactory, session -> {
       RealmModel realm = session.realms().getRealm(realmId);
-      groupMapConfig.setProperties(GetGroupMapConfig(session, realm, config));
+      groupMapConfig.setProperties(getGroupMapConfig(session, realm, config));
     });
     return groupMapConfig;
   }
 
-  private GroupMapConfig GetGroupMapConfig(KeycloakSession session, RealmModel realm, ComponentModel config) {
+  private GroupMapConfig getGroupMapConfig(KeycloakSession session, RealmModel realm, ComponentModel config) {
     GroupMapConfig groupMapConfig = new GroupMapConfig();
     Map<String, GroupModel> groupMap = groupMapConfig.groupMap;
     List<GroupModel> groupsForUsersNotInMappedGroups = groupMapConfig.groupsForUsersNotInMappedGroups;
@@ -461,7 +472,7 @@ public class MsgApiUserStorageProviderFactory
 
     if (config.contains(CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS)
         && config.contains(CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS)) {
-      Arrays.stream(config.get(CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS).split(",")).map(g -> g.trim())
+      Arrays.stream(config.get(CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS).split(",")).map(String::trim)
           .forEach(g -> {
             try {
               GroupModel kcGroup = KeycloakModelUtils.findGroupByPath(session, realm, g);
@@ -518,6 +529,8 @@ public class MsgApiUserStorageProviderFactory
             return -1;
           }
         });
+
+    Boolean onlyUseGroupsInGroupMap = fedModel.get(CONFIG_KEY_ONLY_USE_GROUPS_IN_GROUP_MAP, false);
 
     if (totalExistingUsers > 0) {
       int totalPagesExistingUsers = (int) Math.ceil((double) totalExistingUsers / USER_REMOVE_PAGE_SIZE);
@@ -609,7 +622,7 @@ public class MsgApiUserStorageProviderFactory
                   importedUser = existingLocalUser;
                 } else if (allowUpdateUpnDomains != null) {
                   String upn = apiUser.getUserPrincipalName();
-                  if (!allowUpdateUpnDomains.stream().anyMatch(domain -> upn.endsWith("@" + domain))) {
+                  if (allowUpdateUpnDomains.stream().noneMatch(domain -> upn.endsWith("@" + domain))) {
                     logger.warnf(
                         "User with userPrincipalName '%s' is not updated during sync as he already exists in Keycloak database but is not linked to federation provider '%s' and UPN domain does not match any of '%s'",
                         apiUser.getUserPrincipalName(), fedModel.getName(), String.join(", ", allowUpdateUpnDomains));
@@ -654,6 +667,18 @@ public class MsgApiUserStorageProviderFactory
 
               HashSet<String> groupIds = new HashSet<>();
 
+              HashSet<String> groupMapGroupIds = new HashSet<>();
+
+              if (groupMap != null && !groupMap.isEmpty()) {
+                for (GroupModel group : groupMap.values()) {
+                  groupMapGroupIds.add(group.getId());
+                }
+
+                for (GroupModel g : groupsForUsersNotInMappedGroups) {
+                  groupMapGroupIds.add(g.getId());
+                }
+              }
+
               if (groupMap != null && !groupMap.isEmpty() && apiUserGroups != null && !apiUserGroups.isEmpty()) {
                 for (String apiUserGroup : apiUserGroups) {
                   if (groupMap.containsKey(apiUserGroup)) {
@@ -666,14 +691,16 @@ public class MsgApiUserStorageProviderFactory
                   }
                 }
                 List<GroupModel> groupsToLeave = importedUser.getGroupsStream().filter(g -> {
-                  return !groupIds.contains(g.getId());
+                  if (onlyUseGroupsInGroupMap) {
+                    return groupMapGroupIds.contains(g.getId()) && !groupIds.contains(g.getId());
+                  } else {
+                    return !groupIds.contains(g.getId());
+                  }
                 }).collect(Collectors.toList());
 
                 if (!groupsToLeave.isEmpty()) {
                   groupsChanged = true;
-                  groupsToLeave.forEach(g -> {
-                    importedUser.leaveGroup(g);
-                  });
+                  groupsToLeave.forEach(importedUser::leaveGroup);
                 }
               } else {
                 if ((apiUserGroups == null || apiUserGroups.isEmpty())
@@ -686,23 +713,29 @@ public class MsgApiUserStorageProviderFactory
                     }
                   }
                   List<GroupModel> groupsToLeave = importedUser.getGroupsStream().filter(g -> {
-                    return !groupIds.contains(g.getId());
+                    if (onlyUseGroupsInGroupMap) {
+                      return groupMapGroupIds.contains(g.getId()) && !groupIds.contains(g.getId());
+                    } else {
+                      return !groupIds.contains(g.getId());
+                    }
                   }).collect(Collectors.toList());
 
                   if (!groupsToLeave.isEmpty()) {
                     groupsChanged = true;
-                    groupsToLeave.forEach(g -> {
-                      importedUser.leaveGroup(g);
-                    });
+                    groupsToLeave.forEach(importedUser::leaveGroup);
                   }
                 } else {
-                  List<GroupModel> groupsToLeave = importedUser.getGroupsStream().collect(Collectors.toList());
+                  List<GroupModel> groupsToLeave = importedUser.getGroupsStream().filter(g -> {
+                    if (onlyUseGroupsInGroupMap) {
+                      return groupMapGroupIds.contains(g.getId());
+                    } else {
+                      return true;
+                    }
+                  }).collect(Collectors.toList());
 
                   if (!groupsToLeave.isEmpty()) {
                     groupsChanged = true;
-                    groupsToLeave.forEach(g -> {
-                      importedUser.leaveGroup(g);
-                    });
+                    groupsToLeave.forEach(importedUser::leaveGroup);
                   }
                 }
               }
@@ -787,9 +820,8 @@ public class MsgApiUserStorageProviderFactory
     do {
       JSONObject odataJsonObject = callMsgGetEndpoint(odataNextLink, token);
       JSONArray odataJsonArray = odataJsonObject.getJSONArray("value");
-      odataObjects.addAll(IntStream.range(0, odataJsonArray.length()).mapToObj(i -> {
-        return odataJsonArray.getJSONObject(i);
-      }).collect(Collectors.toList()));
+      odataObjects.addAll(IntStream.range(0, odataJsonArray.length()).mapToObj(odataJsonArray::getJSONObject)
+          .collect(Collectors.toList()));
       if (odataJsonObject.has("@odata.nextLink")) {
         try {
           odataNextLink = new URL(odataJsonObject.getString("@odata.nextLink"));
