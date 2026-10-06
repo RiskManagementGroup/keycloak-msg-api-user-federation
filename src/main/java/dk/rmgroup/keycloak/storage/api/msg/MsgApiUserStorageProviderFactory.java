@@ -50,6 +50,7 @@ import org.keycloak.storage.UserStorageProviderFactory;
 import org.keycloak.storage.UserStorageProviderModel;
 import org.keycloak.storage.user.ImportSynchronization;
 import org.keycloak.storage.user.SynchronizationResult;
+import org.springframework.scheduling.support.CronExpression;
 
 import com.google.common.base.Strings;
 import com.microsoft.aad.msal4j.ClientCredentialFactory;
@@ -64,6 +65,8 @@ import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConst
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_AUTHORITY;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_CLIENT_ID;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_DO_NOT_OVERRIDE_MOBILE_WITH_EMPTY;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_ENABLE_FULL_SYNC_WITH_SPECIFIC_TIME;
+import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_FULL_SYNC_SPECIFIC_TIME;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUPS_FOR_USERS_NOT_IN_MAPPED_GROUPS;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_GROUP_MAP;
 import static dk.rmgroup.keycloak.storage.api.msg.MsgApiUserStorageProviderConstants.CONFIG_KEY_IMPORT_USERS_NOT_IN_MAPPED_GROUPS;
@@ -163,7 +166,27 @@ public class MsgApiUserStorageProviderFactory
         .type(ProviderConfigProperty.BOOLEAN_TYPE)
         .helpText("If enabled, the mobile phone number will not be overridden if the new value is empty.")
         .add()
+        .property()
+        .name(CONFIG_KEY_ENABLE_FULL_SYNC_WITH_SPECIFIC_TIME)
+        .label("Enable full sync with specific time")
+        .type(ProviderConfigProperty.BOOLEAN_TYPE)
+        .helpText("If enabled, a full synchronization will be performed at the specified time.")
+        .add()
+        .property()
+        .name(CONFIG_KEY_FULL_SYNC_SPECIFIC_TIME)
+        .label("Full sync specific time cron string")
+        .type(ProviderConfigProperty.STRING_TYPE)
+        .helpText(
+            "Specify the time at which a full synchronization should be performed. Use a cron string format. Default is set to 2 at night every day. The first number is the seconds. The second number is the minutes. The third number is the hours. The remaining numbers represent the day of the month, month, and day of the week respectively. '*' means any value for that field. A '/' indicates increments for that field. You can see examples in https://crontab.guru/ or https://devhints.io/cron. Just remember to add a 0 for the seconds since they do not have secounds.")
+        .defaultValue("0 0 2 */1 * *")
+        .add()
         .build();
+  }
+
+  @Override
+  public void postInit(KeycloakSessionFactory factory) {
+    MsgApiUserStorageEventListener MsgApiUserStorageEventListener = new MsgApiUserStorageEventListener(factory);
+    factory.register(MsgApiUserStorageEventListener);
   }
 
   @Override
@@ -210,6 +233,28 @@ public class MsgApiUserStorageProviderFactory
     }
     if (!config.contains(CONFIG_KEY_MSG_BASE_URL)) {
       throw new ComponentValidationException("Microsoft Graph API Base Url is required!");
+    }
+    if (config.get(CONFIG_KEY_ENABLE_FULL_SYNC_WITH_SPECIFIC_TIME, false) && !config.contains(CONFIG_KEY_FULL_SYNC_SPECIFIC_TIME)) {
+      throw new ComponentValidationException("Full sync specific time is required when full sync with specific time is enabled!");
+    }
+
+    if (config.get(CONFIG_KEY_ENABLE_FULL_SYNC_WITH_SPECIFIC_TIME, false) && config.contains(CONFIG_KEY_FULL_SYNC_SPECIFIC_TIME)) {
+      String fullSyncSpecificTime = config.get(CONFIG_KEY_FULL_SYNC_SPECIFIC_TIME);
+      if (fullSyncSpecificTime == null || fullSyncSpecificTime.isEmpty()) {
+        throw new ComponentValidationException("Full sync specific time must be specified when full sync with specific time is enabled!");
+      }
+
+      if (!CronExpression.isValidExpression(fullSyncSpecificTime)) {
+        throw new ComponentValidationException("Full sync specific time must be a valid cron expression!");
+      }
+    }
+
+    if (!"-1".equals(config.get("fullSyncPeriod", "")) && config.get(CONFIG_KEY_ENABLE_FULL_SYNC_WITH_SPECIFIC_TIME, false)){
+      throw new ComponentValidationException("Cannot enable both periodic full sync and full sync with specific time simultaneously!");
+    }
+
+    if (!"-1".equals(config.get("changedSyncPeriod", "")) && config.get(CONFIG_KEY_ENABLE_FULL_SYNC_WITH_SPECIFIC_TIME, false)) {
+      throw new ComponentValidationException("Cannot enable both periodic changed users sync and full sync with specific time simultaneously!");
     }
 
     GroupMapConfig groupMapConfig = getGroupMapConfig(session, realm, config);

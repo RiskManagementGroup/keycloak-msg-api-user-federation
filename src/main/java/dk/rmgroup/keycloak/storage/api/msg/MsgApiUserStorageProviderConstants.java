@@ -15,4 +15,6 @@ public final class MsgApiUserStorageProviderConstants {
     public static final String CONFIG_DEFAULT_SCOPE = "https://graph.microsoft.com/.default";
     public static final String CONFIG_KEY_ONLY_USE_GROUPS_IN_GROUP_MAP = "onlyUseGroupsInGroupMap";
     public static final String CONFIG_KEY_DO_NOT_OVERRIDE_MOBILE_WITH_EMPTY = "doNotOverrideMobileWithEmpty";
+    public static final String CONFIG_KEY_ENABLE_FULL_SYNC_WITH_SPECIFIC_TIME = "enableFullSyncWithSpecificTime";
+    public static final String CONFIG_KEY_FULL_SYNC_SPECIFIC_TIME = "fullSyncSpecificTime";
 }
